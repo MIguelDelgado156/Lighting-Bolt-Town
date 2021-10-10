@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.g3d.Model;
 import com.badlogic.gdx.graphics.g3d.ModelInstance;
 import com.badlogic.gdx.graphics.g3d.decals.Decal;
+import com.badlogic.gdx.math.Quaternion;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.utils.Array;
 
@@ -22,7 +23,7 @@ public class Character {
     public int state = IDLE.val();
     private byte b = -1;
     public Vector3 position, prevPosition;
-    private Vector3 velocity = new Vector3(0f,0f,0f);
+    private Vector3 velocity = new Vector3(0f,0f,0f), xAxis = new Vector3(1f,0f,0f), nxAxis = new Vector3(-1f,0f,0f);
     private Texture sprite;
     private TextureRegion texMain[];
     private Array<TextureRegion[]> texi = new Array<TextureRegion[]>();
@@ -50,32 +51,30 @@ public class Character {
 
     public void step(float delta) {
         this.position = this.c.transform.getTranslation(new Vector3());
-        Vector3 v = getVelocity(prevPosition, delta);
+        velocity = getVelocity(prevPosition,delta);
 
-        if(!v.epsilonEquals(0f,0f,0f)) {
-            b = checkDir(Orchestrator.camera.position, v);
+        if(!velocity.epsilonEquals(0f,0f,0f)) {
+           b = checkDir(Orchestrator.camera.position);
+        }
+        else b = -1;
 
             switch (b) {
                 case 0:
-                    setAnim(WALK_AWAY);
-                    System.out.println("Away");
+                    setAnim(WALK_RIGHT);
                     break;
 
                 case 1:
-                    setAnim(WALK_RIGHT);
-                    System.out.println("Right");
+                    setAnim(WALK_LEFT);
                     break;
 
                 case 2:
                     setAnim(WALK_TOWARDS);
-                    System.out.println("towards");
                     break;
 
                 case 3:
-                    setAnim(WALK_LEFT);
-                    System.out.println("Left");
+                    setAnim(WALK_AWAY);
             }
-        }
+
 
         //if(hp < 1); //die
         this.prevPosition = this.position;
@@ -140,21 +139,21 @@ public class Character {
 
         TextureRegion tmpR3[] = new TextureRegion[4];
 
-        //walk away - loc 2
-        tmpR3[0] = tmp[1][4];
-        tmpR3[1] = tmp[1][5];
-        tmpR3[2] = tmp[1][6];
-        tmpR3[3] = tmp[1][5];
+        //walk away - loc 3
+        tmpR3[0] = tmp[3][0];
+        tmpR3[1] = tmp[3][1];
+        tmpR3[2] = tmp[3][2];
+        tmpR3[3] = tmp[3][1];
 
         texi.add(tmpR3);
 
         TextureRegion tmpR4[] = new TextureRegion[4];
 
-        //walk towards - loc 2
-        tmpR4[0] = tmp[1][4];
-        tmpR4[1] = tmp[1][5];
-        tmpR4[2] = tmp[1][6];
-        tmpR4[3] = tmp[1][5];
+        //walk towards - loc 4
+        tmpR4[0] = tmp[1][0];
+        tmpR4[1] = tmp[1][1];
+        tmpR4[2] = tmp[1][2];
+        tmpR4[3] = tmp[1][1];
 
         texi.add(tmpR4);
 
@@ -200,24 +199,52 @@ public class Character {
         return textureResult;
     }
 
-    private byte checkDir(Vector3 camPosition, Vector3 tmpC) {
-        //0 - Away
-        //1 - Right
-        //2 - Towards
-        //3 - Left
+    private byte checkDir(Vector3 camPosition) {
+        byte b1;
 
-        Vector3 tmpP = new Vector3(this.position.x-camPosition.x,this.position.y-camPosition.y,this.position.z-camPosition.z);
-        double piMan;
-        byte tmpD = 0;
+        //angle from this to camera
+        double angleA = getAngle(this.position, camPosition);
 
-        piMan = Math.acos(  (tmpP.dot(tmpC)) / (tmpP.len() * tmpC.len())  );
+        //angle of velocity
+        double angleB;
+        if(xAxis.z > velocity.z) {
+            angleB = Math.acos((velocity.dot(nxAxis)) / (velocity.len() * nxAxis.len()));
+            angleB += Math.PI;
+        }
+        else angleB = Math.acos((velocity.dot(xAxis)) / (velocity.len() * xAxis.len()));
 
-        if(piMan < Math.PI) tmpD = 3;
-        else if(piMan > Math.PI) tmpD = 1;
-        else tmpD = 2;
 
-        System.out.println("theta - "+piMan);
-        return tmpD;
+        //Checking if the angle of position, angleA, is in angleB
+        if(isWithin(angleA, angleB + Math.PI, 0.5f))
+            b1 = 3;
+        else if(isWithin(angleA,angleB, 0.5f))
+            b1 = 2;
+        else if(isWithin(angleA, angleB + (Math.PI / 2f), ((Math.PI/2f) - 0.5f)))
+            b1 = 0;
+        else
+            b1 = 1;
+
+        return b1;
+    }
+
+    private boolean isWithin(Double x, Double x1, double x2) {
+        double bounds1, bounds2;
+        x1 = x1%(2*Math.PI);
+
+        bounds1 = (x1 + x2) % (2 * Math.PI);
+        bounds2 = x1 - x2;
+
+        if(bounds2 < 0)  {
+            bounds2 += 2 * Math.PI;
+            if(x > bounds2 || x < bounds1)
+                return true;
+        }
+        else {
+            if(x > bounds2 && x< bounds1)
+                return true;
+        }
+
+        return false;
     }
 
     private Vector3 getVelocity(Vector3 prevPosition, float deltaTime) {
@@ -234,4 +261,26 @@ public class Character {
         return velocity;
     }
 
+    private double getAngle(Vector3 v1, Vector3 v2) {
+        Vector3 targetPoint = new Vector3(v2);
+
+        Vector3 difference = targetPoint.sub(v1);
+
+        Vector3 direction = difference.nor();
+
+        float dotProduct;
+        double angle;
+
+        if(v1.z > v2.z) {
+            dotProduct = nxAxis.dot(direction);
+            angle = Math.acos(dotProduct);
+            angle += Math.PI;
+        }
+        else {
+            dotProduct = xAxis.dot(direction);
+            angle = Math.acos(dotProduct);
+        }
+
+        return angle;
+    }
 }
